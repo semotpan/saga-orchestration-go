@@ -1,0 +1,13 @@
+server:
+  port: 8082
+store:
+  host: payment-db
+  port: 5432
+  user: paymentuser
+  password: secret
+  dbname: paymentdb
+kafka:
+  boostrap-servers: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+  payment:
+    group-id: payment-service
+    inbox-topic: payment.inbox.events

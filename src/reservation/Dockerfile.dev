@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1
+
+FROM golang:1.21.1-alpine3.18 AS builder
+
+ENV PATH="/go/bin:${PATH}"
+ENV GO111MODULE=on
+ENV CGO_ENABLED=1
+ENV GOOS=linux
+ENV GOARCH=amd64
+
+# Set destination for COPY
+WORKDIR /app
+
+# Copy go.mod and go.sum to download dependencies
+COPY go.mod go.sum ./
+
+# Download and install any dependencies
+RUN go mod download
+
+RUN apk -U add ca-certificates
+RUN apk update && apk upgrade && apk add pkgconf git bash build-base sudo
+RUN git clone https://github.com/edenhill/librdkafka.git && cd librdkafka && ./configure --prefix /usr && make && make install
+
+
+# Copy the source code. Note the slash at the end, as explained in
+COPY reservation/ ./reservation
+COPY reservation/configs ./
+COPY pkg/ ./pkg
+
+#RUN GOOS=linux go build -o main hotel/cmd/*.go
+RUN go build -tags musl --ldflags "-extldflags -static" -o main reservation/cmd/*.go
+
+FROM scratch AS runner
+
+COPY --from=builder /app/main /
+COPY --from=builder /app/app.yaml /
+
+EXPOSE 8080
+
+CMD ["/main"]

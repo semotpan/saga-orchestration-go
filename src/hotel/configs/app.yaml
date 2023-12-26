@@ -1,0 +1,13 @@
+server:
+  port: 8081
+store:
+  host: hotel-db
+  port: 5432
+  user: hoteluser
+  password: secret
+  dbname: hoteldb
+kafka:
+  boostrap-servers: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+  room-booking:
+    group-id: hotel-service-br
+    inbox-topic: room-booking.inbox.events

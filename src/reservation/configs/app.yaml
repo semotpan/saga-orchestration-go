@@ -1,0 +1,16 @@
+server:
+  port: 8080
+store:
+  host: reservation-db
+  port: 5432
+  user: reservationuser
+  password: secret
+  dbname: reservationdb
+kafka:
+  boostrap-servers: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+  room-booking:
+    group-id: reservation-service-rb
+    inbox-topic: room-booking.outbox.events
+  payment:
+    group-id: reservation-service-p
+    inbox-topic: payment.outbox.events

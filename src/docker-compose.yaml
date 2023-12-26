@@ -1,0 +1,214 @@
+services:
+  ######## kafka cluster ########
+  zookeeper:
+    image: 'confluentinc/cp-zookeeper:7.4.1'
+    container_name: zookeeper
+    restart: unless-stopped
+    ports:
+      - '2181:2181'
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    healthcheck:
+      test: "echo stat | nc localhost $$ZOOKEEPER_CLIENT_PORT"
+    networks:
+      - local-network
+
+  kafka:
+    image: 'confluentinc/cp-kafka:7.4.1'
+    container_name: kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    ports:
+      - '9092:9092'
+      - '29092:29092'
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: [ "CMD", "nc", "-z", "localhost", "9092" ]
+    networks:
+      - local-network
+
+  #  ######## debezium connect (!same for all services) ########
+  connect:
+    image: debezium/strimzi-connect
+    container_name: 'connect'
+    build:
+      context: debezium-strimzi
+    ports:
+      - '8083:8083'
+    links:
+      - kafka
+      - reservation-db
+    environment:
+      - KAFKA_LOG4J_OPTS=-Dlog4j.configuration=file:/opt/kafka/config/connect-log4j.properties
+      - KAFKA_CONNECT_BOOTSTRAP_SERVERS=kafka:9092
+      - |
+        KAFKA_CONNECT_CONFIGURATION=
+        key.converter=org.apache.kafka.connect.json.JsonConverter
+        value.converter=org.apache.kafka.connect.json.JsonConverter
+        key.converter.schemas.enable=false
+        value.converter.schemas.enable=false
+        group.id=connect
+        offset.storage.topic=connect-offsets
+        offset.storage.replication.factor=1
+        config.storage.topic=connect-configs
+        config.storage.replication.factor=1
+        status.storage.topic=connect-status
+        status.storage.replication.factor=1
+    command: /opt/kafka/kafka_connect_run.sh
+    networks:
+      - local-network
+
+  connect-ui:
+    image: 'landoop/kafka-connect-ui:0.9.7'
+    container_name: connect-ui
+    restart: unless-stopped
+    depends_on:
+      - connect
+    ports:
+      - '8086:8000'
+    environment:
+      CONNECT_URL: http://connect:8083
+      PROXY: "true"
+    healthcheck:
+      test: "wget --quiet --tries=1 --spider http://localhost:8000 || exit 1"
+    networks:
+      - local-network
+  #
+  #  ######## hotel service ########
+  hotel-db:
+    image: 'postgres:16'
+    container_name: 'hotel-db'
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=hoteluser
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=hoteldb
+      - PGPASSWORD=secret
+    ports:
+      - '5433:5432'
+    volumes:
+      - './hotel/schema/schema.sql:/docker-entrypoint-initdb.d/schema.sql'
+    command: "postgres -c wal_level=logical"
+    healthcheck:
+      test: "pg_isready -U hoteluser -d hoteldb"
+    networks:
+      - local-network
+
+  hotel-service:
+    container_name: 'hotel-service'
+    build:
+      context: .
+      dockerfile: hotel/Dockerfile.dev
+    ports:
+      - '8081:8081'
+    depends_on:
+      hotel-db:
+        condition: service_healthy
+    networks:
+      - local-network
+
+  ######## payment service ########
+  payment-db:
+    image: 'postgres:16'
+    container_name: 'payment-db'
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=paymentuser
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=paymentdb
+      - PGPASSWORD=secret
+    ports:
+      - '5434:5432'
+    volumes:
+      - './payment/schema/schema.sql:/docker-entrypoint-initdb.d/schema.sql'
+    command: "postgres -c wal_level=logical"
+    healthcheck:
+      test: "pg_isready -U paymentuser -d paymentdb"
+    networks:
+      - local-network
+
+  payment-service:
+    container_name: 'payment-service'
+    build:
+      context: .
+      dockerfile: payment/Dockerfile.dev
+    ports:
+      - '8082:8082'
+    depends_on:
+      payment-db:
+        condition: service_healthy
+    networks:
+      - local-network
+
+  ######## reservation service ########
+  reservation-db:
+    image: 'postgres:16'
+    container_name: 'reservation-db'
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=reservationuser
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=reservationdb
+      - PGPASSWORD=secret
+    ports:
+      - '5432:5432'
+    volumes:
+      - './reservation/schema/schema.sql:/docker-entrypoint-initdb.d/init.sql'
+    command: "postgres -c wal_level=logical"
+    healthcheck:
+      test: "pg_isready -U reservationuser -d reservationdb"
+    networks:
+      - local-network
+
+  reservation-service:
+    container_name: 'reservation-service'
+    build:
+      context: .
+      dockerfile: reservation/Dockerfile.dev
+    ports:
+      - '8080:8080'
+    depends_on:
+      reservation-db:
+        condition: service_healthy
+    networks:
+      - local-network
+
+  # This "container" is a workaround to pre-create topics and submit connectors to connect
+  kafka-setup:
+    image: confluentinc/cp-kafka:7.4.1
+    container_name: kafka-setup
+    depends_on:
+      - kafka
+      - connect
+    volumes:
+      - $PWD/../connectors/hotel-outbox-connector.json:/tmp/connectors/hotel-outbox-connector.json
+      - $PWD/../connectors/payment-outbox-connector.json:/tmp/connectors/payment-outbox-connector.json
+      - $PWD/../connectors/reservation-outbox-connector.json:/tmp/connectors/reservation-outbox-connector.json
+    command: "bash -c 'echo Waiting for Kafka to be ready... && \
+                       cub kafka-ready -b kafka:9092 1 20 && \
+                       kafka-topics --create --bootstrap-server kafka:9092 --replication-factor 1 --partitions 1 --topic room-booking.inbox.events && \
+                       kafka-topics --create --bootstrap-server kafka:9092 --replication-factor 1 --partitions 1 --topic room-booking.outbox.events && \
+                       kafka-topics --create --bootstrap-server kafka:9092 --replication-factor 1 --partitions 1 --topic payment.inbox.events && \
+                       kafka-topics --create --bootstrap-server kafka:9092 --replication-factor 1 --partitions 1 --topic payment.outbox.events && \
+                       echo Waiting 20 seconds for Connect to be ready... && \
+                       sleep 20 && \
+                       curl -i -X PUT -H Accept:application/json -H Content-Type:application/json http://connect:8083/connectors/hotel-outbox-connector/config -d @/tmp/connectors/hotel-outbox-connector.json && \
+                       curl -i -X PUT -H Accept:application/json -H Content-Type:application/json http://connect:8083/connectors/payment-outbox-connector/config -d @/tmp/connectors/payment-outbox-connector.json && \
+                       curl -i -X PUT -H Accept:application/json -H Content-Type:application/json http://connect:8083/connectors/reservation-outbox-connector/config -d @/tmp/connectors/reservation-outbox-connector.json
+                  '"
+    environment:
+      # The following settings are listed here only to satisfy the image's requirements.
+      # We override the image's `command` anyways, hence this container will not start a broker.
+      KAFKA_BROKER_ID: ignored
+      KAFKA_ZOOKEEPER_CONNECT: ignored
+    networks:
+      - local-network
+
+networks:
+  local-network:
+    name: go-saga-orchestration-network
