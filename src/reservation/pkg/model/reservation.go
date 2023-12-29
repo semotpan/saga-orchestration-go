@@ -73,7 +73,6 @@ func (r *Reservation) ToJSONMap() jsonmap.JSONMap {
 		"roomId":        r.RoomID,
 		"startDate":     r.StartDate,
 		"endDate":       r.EndDate,
-		"status":        r.Status,
 		"guestId":       r.GuestID,
 		"paymentDue":    r.PaymentDue,
 		"creditCardNo":  r.CreditCardNO,
