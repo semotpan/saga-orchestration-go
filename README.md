@@ -18,23 +18,26 @@ There are 3 microservices involved:
 * `Payment Service` - executes the payment associated to an incoming reservation
 
 And we have the following service configuration:
-![Context Overview](assets/context-overview.png)
+![Context Overview](assets/contextoverview.png)
 
 ### Task: 
 Use the [**SAGA Orchestration Pattern**](https://microservices.io/post/sagas/2019/12/12/developing-sagas-part-4.html) to ensure data consistency between services.
 
 ### Implementation
 The reservation process is as follows:
-![Reservation State](assets/reservation-state.png)
+![Reservation State](assets/reservationstate.png)
+
+The SAGA framework state machine happy path:
+![SagaStateMachine](assets/sagastatemachine.png)
 
 A detailed component workflow:
-![Use Case Overview](assets/use-case-overview.png)
+![Use Case Overview](assets/usecaseoverview.png)
 
 A happy path for making a reservation is illustrated in the following _sequence diagram_:
-![Happy Path](assets/state-diagram-happy-path.png)
+![Happy Path](assets/statediagramhappypath.png)
 
 An unhappy path of making a reservation, when the payment is rejected, and the _compensation_ step is involved you can see in the following _sequence diagram_:
-![Unhappy Path](assets/state-diagram-unhappy-path.png)
+![Unhappy Path](assets/statediagramunhappypath.png)
 
 ## Running the Use Case
 
